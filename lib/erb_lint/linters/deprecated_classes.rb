@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-
+# Edit
 module ERBLint
   class Linter
     # Checks for deprecated classes in the start tags of HTML elements.
