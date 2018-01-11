@@ -77,6 +77,7 @@ describe ERBLint::Linters::Rubocop do
     FILE
 
     it { expect(subject).to eq [arbitrary_error_message(29..41)] }
+    it { expect(subject.first.source_range.source).to eq "banned_method" }
   end
 
   context 'supports loading nested config' do
