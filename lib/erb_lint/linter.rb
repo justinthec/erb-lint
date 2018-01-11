@@ -5,35 +5,47 @@ module ERBLint
   class Linter
     class << self
       attr_accessor :simple_name
+      attr_accessor :config_schema
 
       # When defining a Linter class, define its simple name as well. This
       # assumes that the module hierarchy of every linter starts with
-      # `ERBLint::Linter::`, and removes this part of the class name.
+      # `ERBLint::Linters::`, and removes this part of the class name.
       #
-      # `ERBLint::Linter::Foo.simple_name`          #=> "Foo"
-      # `ERBLint::Linter::Compass::Bar.simple_name` #=> "Compass::Bar"
+      # `ERBLint::Linters::Foo.simple_name`          #=> "Foo"
+      # `ERBLint::Linters::Compass::Bar.simple_name` #=> "Compass::Bar"
       def inherited(linter)
-        name_parts = linter.name.split('::')
-        name = name_parts.length < 3 ? '' : name_parts[2..-1].join('::')
-        linter.simple_name = name
+        linter.simple_name = if linter.name.start_with?('ERBLint::Linters::')
+          name_parts = linter.name.split('::')
+          name_parts[2..-1].join('::')
+        else
+          linter.name
+        end
+
+        linter.config_schema = LinterConfig
+      end
+
+      def support_autocorrect?
+        method_defined?(:autocorrect)
       end
     end
 
     # Must be implemented by the concrete inheriting class.
-    def initialize(_config)
-      raise NotImplementedError, "must implement ##{__method__}"
+    def initialize(file_loader, config)
+      @file_loader = file_loader
+      @config = config
+      raise ArgumentError, "expect `config` to be #{self.class.config_schema} instance, "\
+        "not #{config.class}" unless config.is_a?(self.class.config_schema)
     end
 
-    def lint_file(file_content)
-      lines = file_content.scan(/[^\n]*\n|[^\n]+/)
-      lint_lines(lines)
+    def enabled?
+      @config.enabled?
     end
 
-    protected
+    def excludes_file?(filename)
+      @config.excludes_file?(filename)
+    end
 
-    # The lint_lines method that contains the logic for the linter and returns a list of errors.
-    # Must be implemented by the concrete inheriting class.
-    def lint_lines(_lines)
+    def offenses(_processed_source)
       raise NotImplementedError, "must implement ##{__method__}"
     end
   end

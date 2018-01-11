@@ -1,4 +1,4 @@
-# ERB Lint [![Build Status](https://travis-ci.org/justinthec/erb-lint.svg?branch=master)](https://travis-ci.org/justinthec/erb-lint)
+# ERB Lint [![Build Status](https://travis-ci.org/Shopify/erb-lint.svg?branch=master)](https://travis-ci.org/Shopify/erb-lint)
 
 `erb-lint` is a tool to help lint your ERB or HTML files using the included linters or by writing your own.
 
@@ -20,96 +20,65 @@ gem install erb_lint
 gem 'erb_lint'
 ```
 
-## Usage
-
-1. First prepare your configurations to specify which Linters you want to use. Configuration details can be found [here](#configuration).
-
-  ```ruby
-  config = {
-    'linters' => {
-      'FinalNewline' => {
-        'enabled' => true
-      }
-    }
-  }
-  ```
-  
-2. Next instantiate a Runner with the configuration.
-
-  ```ruby
-  runner = ERBLint::Runner.new(config)
-  ```
-
-3. Finally, we can run the Runner against a file:
-  ```erb
-  <!-- file.html.erb -->
-  <div class="foo"></div>
-  ```
-
-  ```ruby
-  file = File.read('file.html.erb')
-  violations = runner.run(file)
-  ```
-  
-  The runner returns a violation list containing each linter that was run and its corresponding list of errors.
-  ```ruby
-  violations
-  # => [{
-  #   linter_name: 'FinalNewline',
-  #   errors: [
-  #     { line: 1, message: 'Missing a trailing newline at the end of the file.' }
-  #   ]
-  # }]
-  ```
-
 ## Configuration
 
-The general format for the configuration is:
+Create a `.erb-lint.yml` file in your project, with the following structure:
 
-```ruby
-config = {
-  'linters' => {
-    'Linter1' => {
-      'enabled' => true,
-      'linter_specific_option' => 'value',
-      ...
-    },
-    
-    'Linter2' => {
-      'enabled' => false,
-      'linter_specific_option' => 'value',
-      ...
-    }
-  }
-}
+```yaml
+---
+linters:
+  ErbSafety:
+    enabled: true
+    better_html_config: .better-html.yml
+  Rubocop:
+    enabled: true
+    rubocop_config:
+      inherit_from:
+        - .rubocop.yml
 ```
 
-All linters have an `enabled` option which can be `true` or `false`, which
-controls whether the linter is run, along with linter-specific options.
+See below for linter-specific configuration options.
 
-## Linters
+## Usage
 
-`erb-lint` comes with 2 linters on-board: `DeprecatedClasses` and `FinalNewline`, each with their own linter-specific options.
+This gem provides a command-line interface which can be run like so:
+
+1. Run `erblint [options]` if the gem is installed standalone.
+2. Run `bundle exec erblint [options]` if the gem is installed as a Gemfile dependency for your app.
+
+For example, `erblint --lint-all --enable-all-linters` will run all available
+linters on all ERB files in the current directory or its descendants (`**/*.html{+*,}.erb`).
+
+## Available linters
+
+`erb-lint` comes with linters on-board:
+* `DeprecatedClasses`: warn about deprecated css classes.
+* `FinalNewline`: warn about missing newline at the end of a ERB template.
+* `ErbSafety`: detects unsafe interpolation of ruby data into various javascript contexts and enforce usage of safe helpers like `.to_json`. See [better-html's readme](https://github.com/Shopify/better-html#testing-for-valid-html-and-erb) for more information.
+* `Rubocop`: runs RuboCop rules on ruby statements found in ERB templates.
 
 ### DeprecatedClasses
 
 DeprecatedClasses will find all classes used on HTML elements and report any classes that violate the rule set that you provide.
 
-This `rule_set` is specified as a list of rules each with a set of `deprecated` classes and a corresponding `suggestion`.
+A `rule_set` is specified as a list, each with a set of `deprecated` classes and a corresponding `suggestion` to use as an alternative.
 
-```ruby
-'rule_set' => [
-  {
-    'deprecated' => ['class1', 'class2'],
-    'suggestion' => "Use class3 instead!"
-  },
-  {
-    'deprecated' => ['regular-expressions-*', 'size--\d+'],
-    'suggestion' => "Hey aren't regular expressions neat?"
-  }
-]
+Example configuration:
+
+```yaml
+---
+linters:
+  DeprecatedClasses:
+    enabled: true
+    exclude:
+      - 'app/views/shared/deprecated/**'
+    addendum: "See UX wiki for help."
+    rule_set:
+      - deprecated: ['badge[-_\w]*']
+        suggestion: "Use the ui_badge() component instead."
 ```
-You can also specify an addendum to be added to the end of each error message using the `addendum` option.
+
+You can specify an `addendum` to be added to the end of each violation.
 The error message format is: `"Deprecated class ... #{suggestion}"`
 or `"Deprecated class ... #{suggestion} #{addendum}"` if an `addendum` is present.
 
@@ -122,62 +91,177 @@ Linter-Specific Option | Description
 
 ### FinalNewline
 
-Files should always have a final newline. This results in better diffs when
+Files must have a final newline. This results in better diffs when
 adding lines to the file, since SCM systems such as git won't think that you
 touched the last line.
 
 You can customize whether or not a final newline exists with the `present`
 option.
 
+Example configuration:
+
+```yaml
+---
+linters:
+  FinalNewline:
+    enabled: true
+```
+
 Linter-Specific Option | Description
 -----------------------|---------------------------------------------------------
 `present`              | Whether a final newline should be present (default **true**)
 
+### ErbSafety
+
+Runs the checks provided by
+[better-html's erb safety test helper](https://github.com/Shopify/better-html#testing-for-valid-html-and-erb).
+
+When using ERB interpolations in javascript contexts, this linter enforces the usage of safe helpers such as `.to_json`.
+Any ERB statement that does not call a safe helper is deemed unsafe and a violation is shown.
+
+For example:
+```erb
+Not allowed ❌
+<a onclick="alert(<%= some_data %>)">
+
+Allowed ✅
+<a onclick="alert(<%= some_data.to_json %>)">
+```
+
+```erb
+Not allowed ❌
+<script>var myData = <%= some_data %>;</script>
+
+Allowed ✅
+<script>var myData = <%= some_data.to_json %>;</script>
+```
+
+Example configuration:
+
+```yaml
+---
+linters:
+  ErbSafety:
+    enabled: true
+    better_html_config: .better-html.yml
+```
+
+Linter-Specific Option | Description
+-----------------------|---------------------------------------------------------
+`better_html_config`   | Name of the configuration file to use for `better-html`. Optional. Valid options and their defaults are described [in better-html's readme](https://github.com/Shopify/better-html#configuration).
+
+### Rubocop
+
+Runs RuboCop on all ruby statements found in ERB templates. The RuboCop configuration that `erb-lint` uses can inherit from
+the configuration that the rest of your application uses. `erb-lint` can be configured independently however, as it will often
+be necessary to disable specific RuboCop rules that do not apply to ERB files.
+
+Example configuration:
+
+```yaml
+---
+linters:
+  Rubocop:
+    enabled: true
+    rubocop_config:
+      inherit_from:
+        - .rubocop.yml
+      Layout/InitialIndentation:
+        Enabled: false
+      Layout/TrailingBlankLines:
+        Enabled: false
+      Layout/TrailingWhitespace:
+        Enabled: false
+      Naming/FileName:
+        Enabled: false
+      Style/FrozenStringLiteralComment:
+        Enabled: false
+      Metrics/LineLength:
+        Enabled: false
+      Lint/UselessAssignment:
+        Enabled: false
+      Rails/OutputSafety:
+        Enabled: false
+```
+
+The cops disabled in the example configuration above provide a good starting point.
+
+Linter-Specific Option | Description
+-----------------------|---------------------------------------------------------
+`rubocop_config`       | A valid rubocop configuration hash. Mandatory when this cop is enabled. See [rubocop's manual entry on Configuration](http://rubocop.readthedocs.io/en/latest/configuration/)
+
 ## Custom Linters
 
 `erb-lint` allows you to create custom linters specific to your project. It will load linters from the `.erb-linters` directory in the root of your
-repository. See the [linters directory](lib/erb_lint/linters) for examples of how to write
-linters. **Don't forget to enable the linter in the configuration!**
+repository. See the [linters directory](lib/erb_lint/linters) for examples of how to write linters.
 
 ```ruby
-# .erb-linters/another_linter.rb
+# .erb-linters/custom_linter.rb
 
 module ERBLint
-  class Linter::AnotherLinter < Linter
+  module Linters
+  class CustomLinter < Linter
     include LinterRegistry
-    ...
+
+    class ConfigSchema < LinterConfig
+      property :custom_message, accepts: String
+    end
+    self.config_schema = ConfigSchema
+
+    def offenses(processed_source)
+      errors = []
+      unless processed_source.file_content.include?('this file is fine')
+        errors << Offense.new(
+          self,
+          processed_source.to_source_range(0, processed_source.file_content.size),
+          "This file isn't fine. #{@config.custom_message}"
+        )
+      end
+      errors
+    end
   end
 end
 ```
 
-```ruby
-config = {
-  'linters' => {
-    ...
-    'AnotherLinter' => {
-      'enabled' => true,
-      'linter_specific_option' => 'value',
-      ...
-    }
-    ...
-  }
-}
+By default, this linter would be disabled. You can enable it by adding an entry to `.erb-lint.yml`:
+
+```yaml
+---
+linters:
+  CustomLinter:
+    enabled: true
+    custom_message: We suggest you change this file.
 ```
 
-## Contributing
-1. Fork this repo.
-2. Create a new branch. `git checkout -b new-branch-name`
-3. Add and commit your changes. `git add .` `git commit -m "Added these cool things."`
-4. Push to Github. `git push -u origin new-branch-name`
-5. Create a Pull Request on this repo against your branch.
+Test your linter by running `erblint`'s command-line interface:
 
-Please write tests!
+```bash
+bundle exec erblint --enable-linters custom_linter --lint-all
+```
 
-To run tests:
+Running this on a random project might yield this output:
 
-1. run `bundle install` to install `rspec`
+```
+Linting 15 files with 1 linters...
 
-2. `bundle exec rspec spec` to run the test suite.
+This file isn't fine. We suggest you change this file.
+In file: app/views/layouts/application.html.erb:1
+
+Errors were found in ERB files
+```
+
+To write a linter that can autocorrect offenses it detects, simply add an
+`autocorrect` method that returns a callable. The callable is called with an instance of
+[`RuboCop::Cop::Corrector`](http://www.rubydoc.info/github/bbatsov/RuboCop/RuboCop/Cop/Corrector)
+as argument, and therefore erb-lint correctors work exactly as RuboCop correctors do.
+
+```ruby
+def autocorrect(_processed_source, offense)
+  lambda do |corrector|
+    corrector.insert_after(offense.source_range, "this file is fine")
+  end
+end
+```
 
 ## License
 

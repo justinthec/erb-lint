@@ -3,95 +3,114 @@
 require 'spec_helper'
 
 describe ERBLint::Runner do
-  let(:runner) { described_class.new(config) }
+  let(:file_loader) { ERBLint::FileLoader.new('.') }
+  let(:runner) { described_class.new(file_loader, config) }
 
   before do
     allow(ERBLint::LinterRegistry).to receive(:linters)
-      .and_return([ERBLint::Linter::FakeLinter1,
-                   ERBLint::Linter::FakeLinter2])
+      .and_return([ERBLint::Linters::FakeLinter1,
+                   ERBLint::Linters::FakeLinter2,
+                   ERBLint::Linters::FinalNewline])
   end
 
   module ERBLint
-    class Linter
+    module Linters
       class FakeLinter1 < Linter
-        def initialize(_config) end
+        def offenses(processed_source)
+          [Offense.new(self, processed_source.to_source_range(1, 1), "#{self.class.name} error")]
+        end
       end
-      class FakeLinter2 < Linter
-        def initialize(_config) end
-      end
+      class FakeLinter2 < FakeLinter1; end
     end
   end
 
   describe '#run' do
     let(:file) { 'DummyFileContent' }
-    subject { runner.run(file) }
-
-    fake_linter_1_errors = ['FakeLinter1DummyErrors']
-    fake_linter_2_errors = ['FakeLinter2DummyErrors']
-
-    before do
-      allow_any_instance_of(ERBLint::Linter::FakeLinter1).to receive(:lint_file)
-        .with(file).and_return fake_linter_1_errors
-      allow_any_instance_of(ERBLint::Linter::FakeLinter2).to receive(:lint_file)
-        .with(file).and_return fake_linter_2_errors
-    end
+    let(:filename) { 'somefolder/otherfolder/dummyfile.html.erb' }
+    let(:processed_source) { ERBLint::ProcessedSource.new(filename, file) }
+    subject { runner.run(processed_source) }
 
     context 'when all linters are enabled' do
       let(:config) do
-        {
-          'linters' => {
+        ERBLint::RunnerConfig.new(
+          linters: {
             'FakeLinter1' => { 'enabled' => true },
             'FakeLinter2' => { 'enabled' => true }
           }
-        }
+        )
       end
 
       it 'returns each linter with their errors' do
-        expect(subject).to eq [
-          {
-            linter_name: 'FakeLinter1',
-            errors: fake_linter_1_errors
-          },
-          {
-            linter_name: 'FakeLinter2',
-            errors: fake_linter_2_errors
-          }
-        ]
+        expect(subject.size).to eq(2)
+        expect(subject[0].linter.class).to eq(ERBLint::Linters::FakeLinter1)
+        expect(subject[0].message).to eq("ERBLint::Linters::FakeLinter1 error")
+        expect(subject[1].linter.class).to eq(ERBLint::Linters::FakeLinter2)
+        expect(subject[1].message).to eq("ERBLint::Linters::FakeLinter2 error")
       end
     end
 
     context 'when only some linters are enabled' do
       let(:config) do
-        {
-          'linters' => {
+        ERBLint::RunnerConfig.new(
+          linters: {
             'FakeLinter1' => { 'enabled' => true },
             'FakeLinter2' => { 'enabled' => false }
           }
-        }
+        )
       end
 
       it 'returns only enabled linters with their errors' do
-        expect(subject).to eq [
-          {
-            linter_name: 'FakeLinter1',
-            errors: fake_linter_1_errors
-          }
-        ]
+        expect(subject.size).to eq(1)
+        expect(subject[0].linter.class).to eq(ERBLint::Linters::FakeLinter1)
+        expect(subject[0].message).to eq("ERBLint::Linters::FakeLinter1 error")
       end
     end
 
     context 'when all linters are disabled' do
       let(:config) do
-        {
-          'linters' => {
+        ERBLint::RunnerConfig.new(
+          linters: {
             'FakeLinter1' => { 'enabled' => false },
             'FakeLinter2' => { 'enabled' => false }
           }
-        }
+        )
       end
 
       it 'returns no linters' do
         expect(subject).to be_empty
+      end
+    end
+
+    context 'when all linters exclude the file' do
+      let(:config) do
+        ERBLint::RunnerConfig.new(
+          linters: {
+            'FakeLinter1' => { 'enabled' => true, 'exclude' => ['**/otherfolder/**'] },
+            'FakeLinter2' => { 'enabled' => true, 'exclude' => ['somefolder/**.html.erb'] }
+          }
+        )
+      end
+
+      it 'returns no linters' do
+        expect(subject).to be_empty
+      end
+    end
+
+    context 'when the config has no linters' do
+      let(:config) { ERBLint::RunnerConfig.new }
+
+      it 'has all linters disabled' do
+        expect(subject).to eq []
+      end
+    end
+
+    context 'when the config is nil' do
+      let(:config) { nil }
+
+      it 'returns default linters with their errors' do
+        expect(subject.size).to eq(1)
+        expect(subject[0].linter.class).to eq(ERBLint::Linters::FinalNewline)
+        expect(subject[0].message).to eq("Missing a trailing newline at the end of the file.")
       end
     end
   end
