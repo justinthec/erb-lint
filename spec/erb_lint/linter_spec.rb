@@ -4,65 +4,16 @@ require 'spec_helper'
 
 describe ERBLint::Linter do
   context 'when inheriting from the Linter class' do
-    let(:linter_config) { {} }
-    subject             { ERBLint::Linter::Fake.new(linter_config) }
+    let(:linter_config) { ERBLint::LinterConfig.new }
+    let(:file_loader)   { ERBLint::FileLoader.new('.') }
+    let(:linter) { ERBLint::Linters::Fake.new(file_loader, linter_config) }
+    let(:processed_source) { ERBLint::ProcessedSource.new('file.rb', file) }
+    subject { linter }
 
     module ERBLint
-      class Linter
+      module Linters
         class Fake < ERBLint::Linter
-          def initialize(_config)
-          end
-
-          protected
-
-          def lint_lines(_lines)
-          end
-        end
-      end
-    end
-
-    describe '#lint_file' do
-      after do
-        subject.lint_file(file)
-      end
-
-      context 'when the file is empty' do
-        let(:file) { '' }
-
-        it 'calls lint_lines with an empty list' do
-          expect(subject).to receive(:lint_lines).with([])
-        end
-      end
-
-      context 'when the file does not end with a newline' do
-        let(:file) { <<~FILE.chomp }
-          Line1
-          Line2
-          Line3
-        FILE
-
-        it 'calls lint_lines with the list of lines' do
-          expect(subject).to receive(:lint_lines).with(%W(
-            Line1\n
-            Line2\n
-            Line3
-          ))
-        end
-      end
-
-      context 'when the file ends with a newline' do
-        let(:file) { <<~FILE }
-          Line1
-          Line2
-          Line3
-        FILE
-
-        it 'calls lint_lines with the list of lines' do
-          expect(subject).to receive(:lint_lines).with(%W(
-            Line1\n
-            Line2\n
-            Line3\n
-          ))
+          attr_accessor :offenses
         end
       end
     end
@@ -70,6 +21,14 @@ describe ERBLint::Linter do
     describe '.simple_name' do
       it 'returns the name of the class with the ERBLint::Linter prefix removed' do
         expect(subject.class.simple_name).to eq 'Fake'
+      end
+    end
+
+    describe '.clear_offenses' do
+      it 'clears all offenses from the offenses ivar' do
+        linter.offenses = ["someoffense"]
+        linter.clear_offenses
+        expect(linter.offenses).to eq []
       end
     end
   end

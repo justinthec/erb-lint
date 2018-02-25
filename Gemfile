@@ -2,6 +2,11 @@
 
 source 'https://rubygems.org'
 
-gem 'rubocop', '~> 0.40.0', require: false
+gem 'activesupport', '~> 5.1'
+gem 'rake'
+
+group 'test' do
+  gem 'fakefs'
+end
 
 gemspec
