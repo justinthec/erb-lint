@@ -2,6 +2,7 @@
 
 require 'better_html/tree/tag'
 require 'active_support/core_ext/string/inflections'
+require 'pry'
 
 module ERBLint
   module Linters
@@ -24,15 +25,34 @@ module ERBLint
 
       def run(processed_source)
         hardcoded_strings = processed_source.ast.descendants(:text).each_with_object([]) do |text_node, to_check|
+          erb_nodes = text_node.descendants(:erb)
+
           next if javascript?(processed_source, text_node)
 
-          offended_strings = text_node.to_a.select { |node| relevant_node(node) }
-          offended_strings.each do |offended_string|
-            offended_string.split("\n").each do |str|
-              to_check << [text_node, str] if check_string?(str)
+          # text_node.loc.source.split("\n").each do |node|
+          #   next if node.strip.empty?
+          #   to_check << [text_node, node]
+          # end
+
+          text_node.to_a.each do |node|
+            next unless string = relevant_node(node)
+
+            string.split("\n").each do |str|
+              next unless check_string?(str)
+
+              if append_to_last_to_check?(to_check, str, processed_source, text_node)
+                to_check.last[1] += str
+              else
+                to_check << [text_node, str]
+              end
+
+              #to_check << [text_node, to_check_string]
             end
           end
         end
+
+
+        clear_solo_erb_code(hardcoded_strings)
 
         hardcoded_strings.compact.each do |text_node, offended_str|
           range = find_range(text_node, offended_str)
@@ -60,13 +80,54 @@ module ERBLint
         return unless string.strip.length > 1
 
         corrector = klass.new(processed_source.filename, offense.source_range)
-        node = RuboCop::AST::StrNode.new(:str, [string])
+
+        node = RuboCop::ProcessedSource.new(
+          replace_erb_symbols_for_interpolation(string),
+          RUBY_VERSION.to_f,
+        ).ast
+
         corrector.autocorrect(node, tag_start: '<%= ', tag_end: ' %>')
       rescue MissingCorrector
         nil
       end
 
       private
+
+      def clear_solo_erb_code(hardcoded_strings)
+        hardcoded_strings.delete_if do |text_node, offended_str|
+          text_node.descendants(:erb).any? { |node| node.loc.source == offended_str }
+        end
+      end
+
+      def clear_solo_erb_code_from_to_check?(to_check, node)
+        return false if to_check.empty?
+        to_check.last[1] == node.loc.source
+      end
+
+      def append_to_last_to_check?(to_check, str, processed_source, text_node)
+
+        return false if to_check.last.nil?
+
+        to_check_string = to_check.last[1]
+        to_check_string_range = find_range(text_node, to_check_string)
+        return false if to_check_string_range.nil?
+
+        str_range = find_range(text_node, str)
+        str_range.begin - 1 == to_check_string_range.end
+      end
+
+      def join_erb_node(processed_source, text_node, str, erb_nodes)
+        str_range = processed_source.to_source_range(find_range(text_node, str))
+        matching_erb_node = erb_nodes.select do |erb_node|
+          str_range.range.end == erb_node.loc.offset(-1).range.begin
+        end
+        str + matching_erb_node.map { |erb_node| erb_node.loc.source }.join
+      end
+
+      def replace_erb_symbols_for_interpolation(string)
+        string = string.gsub('<%=', '#{ ').gsub('<%', '#{').gsub('%>', ' }')
+        "\"#{string}\""
+      end
 
       def check_string?(str)
         string = str.gsub(/\s*/, '')
@@ -97,6 +158,8 @@ module ERBLint
       def relevant_node(inner_node)
         if inner_node.is_a?(String)
           inner_node.strip.empty? ? false : inner_node
+        elsif inner_node.type == :erb
+          inner_node.loc.source
         else
           false
         end
