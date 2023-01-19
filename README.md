@@ -1,3 +1,5 @@
+⚠️ The canonical repo for this project is now located at https://github.com/Shopify/erb-lint ⚠️
+
 # ERB Lint [![Build Status](https://travis-ci.org/justinthec/erb-lint.svg?branch=master)](https://travis-ci.org/justinthec/erb-lint)
 
 `erb-lint` is a tool to help lint your ERB or HTML files using the included linters or by writing your own.
